@@ -30,6 +30,7 @@ from litellm.utils import create_pretrained_tokenizer
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.message import Message
 from openhands.llm.debug_mixin import DebugMixin
+from openhands.llm.exceptions import CloudflareBlockError
 from openhands.llm.fn_call_converter import (
     STOP_WORDS,
     convert_fncall_messages_to_non_fncall_messages,
@@ -147,6 +148,7 @@ class LLM(RetryMixin, DebugMixin):
         @self.retry_decorator(
             num_retries=self.config.num_retries,
             retry_exceptions=LLM_RETRY_EXCEPTIONS,
+            exclude_exceptions=(CloudflareBlockError,),
             retry_min_wait=self.config.retry_min_wait,
             retry_max_wait=self.config.retry_max_wait,
             retry_multiplier=self.config.retry_multiplier,

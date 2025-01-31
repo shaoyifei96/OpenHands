@@ -1,4 +1,3 @@
-from litellm.exceptions import APIError
 from tenacity import (
     retry,
     retry_if_exception,
@@ -19,23 +18,24 @@ class RetryMixin:
 
         Args:
             **kwargs: Keyword arguments to override default retry behavior.
-                      Keys: num_retries, retry_exceptions, retry_min_wait, retry_max_wait, retry_multiplier
+                      Keys: num_retries, retry_exceptions, exclude_exceptions, retry_min_wait, retry_max_wait, retry_multiplier
 
         Returns:
             A retry decorator with the parameters customizable in configuration.
         """
         num_retries = kwargs.get('num_retries')
         retry_exceptions: tuple = kwargs.get('retry_exceptions', ())
+        exclude_exceptions: tuple = kwargs.get('exclude_exceptions', ())
         retry_min_wait = kwargs.get('retry_min_wait')
         retry_max_wait = kwargs.get('retry_max_wait')
         retry_multiplier = kwargs.get('retry_multiplier')
 
         def _filter_exceptions(e):
-            # For Cloudflare blocks, don't retry - just return False
-            if isinstance(e, APIError) and 'Attention Required! | Cloudflare' in str(e):
+            # First check if the exception is in the exclude list
+            if isinstance(e, exclude_exceptions):
                 return False
 
-            # Otherwise, return True if we want to retry, which means e is in retry_exceptions
+            # Then check if it's in the retry list
             return isinstance(e, retry_exceptions)
 
         return retry(
