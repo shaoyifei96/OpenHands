@@ -105,7 +105,22 @@ class DockerRuntimeBuilder(RuntimeBuilder):
                     raise
             logger.info('Downloaded and installed docker binary')
 
+        # Create a backup of the build context
         target_image_hash_name = tags[0]
+        backup_identifier = target_image_hash_name.split(':')[
+            1
+        ]  # Use the image hash as identifier
+        backup_path = os.path.expanduser(f'~/build_{backup_identifier}')
+
+        try:
+            # Create backup directory if it doesn't exist
+            os.makedirs(backup_path, exist_ok=True)
+            # Copy build context to backup location
+            subprocess.run(['cp', '-r', f'{path}/.', backup_path], check=True)
+            logger.info(f'Build context backed up to: {backup_path}')
+        except Exception as e:
+            logger.warning(f'Failed to backup build context: {e}')
+
         target_image_repo, target_image_source_tag = target_image_hash_name.split(':')
         target_image_tag = tags[1].split(':')[1] if len(tags) > 1 else None
 

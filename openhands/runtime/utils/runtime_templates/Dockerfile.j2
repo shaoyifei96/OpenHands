@@ -12,12 +12,20 @@ ENV POETRY_VIRTUALENVS_PATH=/openhands/poetry \
 
 {% macro setup_base_system() %}
 
+
+
+
 # Install base system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget curl sudo apt-utils git jq tmux \
-        {%- if 'ubuntu' in base_image and (base_image.endswith(':latest') or base_image.endswith(':24.04')) -%}
-        libgl1 \
+        {%- if 'ubuntu' in base_image %}
+            build-essential g++-10 python3-dev ca-certificates \
+            {%- if base_image.endswith(':latest') or base_image.endswith(':24.04') %}
+            libgl1 \
+            {%- else %}
+            libgl1-mesa-glx \
+            {% endif -%}
         {%- else %}
         libgl1-mesa-glx \
         {% endif -%}
@@ -27,6 +35,14 @@ RUN apt-get update && \
 
 # Remove UID 1000 if it's called pn--this fixes the nikolaik image for ubuntu users
 RUN if getent passwd 1000 | grep -q pn; then userdel pn; fi
+
+{% if 'ubuntu' in base_image %}
+# Install Node.js 22.x, npm@10.x, and yarn (stable)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs python3-pip && \
+    npm install -g npm@10 yarn && \
+    pip install numpy torch
+{% endif %}
 
 # Create necessary directories
 RUN mkdir -p /openhands && \

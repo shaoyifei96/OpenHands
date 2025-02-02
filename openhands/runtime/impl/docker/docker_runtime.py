@@ -256,6 +256,10 @@ class DockerRuntime(ActionExecutionClient):
             app_config=self.config,
             use_nice_for_root=False,
         )
+        if self.config.sandbox.enable_gpu:
+            logger.info('!!!GPU support enabled for container!!!')
+        else:
+            logger.info('!!!GPU support disabled for container!!!')
 
         try:
             self.container = self.docker_client.containers.run(
