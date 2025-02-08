@@ -1,3 +1,6 @@
+# Conversations with links so that we can access old container again
+conversations.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
