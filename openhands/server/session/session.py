@@ -1,14 +1,17 @@
 import asyncio
 import time
 from copy import deepcopy
+from logging import LoggerAdapter
 
 import socketio
 
 from openhands.controller.agent import Agent
 from openhands.core.config import AppConfig
-from openhands.core.config.condenser_config import AmortizedForgettingCondenserConfig
+from openhands.core.config.condenser_config import (
+    LLMSummarizingCondenserConfig,
+)
 from openhands.core.const.guide_url import TROUBLESHOOTING_URL
-from openhands.core.logger import openhands_logger as logger
+from openhands.core.logger import OpenHandsLoggerAdapter
 from openhands.core.schema import AgentState
 from openhands.events.action import MessageAction, NullAction
 from openhands.events.event import Event, EventSource
@@ -39,6 +42,7 @@ class Session:
     config: AppConfig
     file_store: FileStore
     user_id: str | None
+    logger: LoggerAdapter
 
     def __init__(
         self,
@@ -52,8 +56,12 @@ class Session:
         self.sio = sio
         self.last_active_ts = int(time.time())
         self.file_store = file_store
+        self.logger = OpenHandsLoggerAdapter(extra={'session_id': sid})
         self.agent_session = AgentSession(
-            sid, file_store, status_callback=self.queue_status_message
+            sid,
+            file_store,
+            status_callback=self.queue_status_message,
+            github_user_id=user_id,
         )
         self.agent_session.event_stream.subscribe(
             EventStreamSubscriber.SERVER, self.on_event, self.sid
@@ -82,7 +90,6 @@ class Session:
             AgentStateChangedObservation('', AgentState.LOADING),
             EventSource.ENVIRONMENT,
         )
-
         agent_cls = settings.agent or self.config.default_agent
         self.config.security.confirmation_mode = (
             self.config.security.confirmation_mode
@@ -108,19 +115,21 @@ class Session:
         agent_config = self.config.get_agent_config(agent_cls)
 
         if settings.enable_default_condenser:
-            default_condenser_config = AmortizedForgettingCondenserConfig(
-                keep_first=3, max_size=20
+            default_condenser_config = LLMSummarizingCondenserConfig(
+                llm_config=llm.config, keep_first=3, max_size=40
             )
-            logger.info(f'Enabling default condenser: {default_condenser_config}')
+            self.logger.info(f'Enabling default condenser: {default_condenser_config}')
             agent_config.condenser = default_condenser_config
 
         agent = Agent.get_cls(agent_cls)(llm, agent_config)
 
         github_token = None
         selected_repository = None
+        selected_branch = None
         if isinstance(settings, ConversationInitData):
             github_token = settings.github_token
             selected_repository = settings.selected_repository
+            selected_branch = settings.selected_branch
 
         try:
             await self.agent_session.start(
@@ -133,10 +142,11 @@ class Session:
                 agent_configs=self.config.get_agent_configs(),
                 github_token=github_token,
                 selected_repository=selected_repository,
+                selected_branch=selected_branch,
                 initial_message=initial_message,
             )
         except Exception as e:
-            logger.exception(f'Error creating agent_session: {e}')
+            self.logger.exception(f'Error creating agent_session: {e}')
             await self.send_error(
                 f'Error creating agent_session. Please check Docker is running and visit `{TROUBLESHOOTING_URL}` for more debugging information..'
             )
@@ -183,6 +193,14 @@ class Session:
             event_dict = event_to_dict(event)
             event_dict['source'] = EventSource.AGENT
             await self.send(event_dict)
+            if (
+                isinstance(event, AgentStateChangedObservation)
+                and event.agent_state == AgentState.ERROR
+            ):
+                self.logger.info(
+                    'Agent status error',
+                    extra={'signal': 'agent_status_error'},
+                )
         elif isinstance(event, ErrorObservation):
             # send error events as agent events to the UI
             event_dict = event_to_dict(event)
@@ -223,7 +241,7 @@ class Session:
             self.last_active_ts = int(time.time())
             return True
         except RuntimeError as e:
-            logger.error(f'Error sending data to websocket: {str(e)}')
+            self.logger.error(f'Error sending data to websocket: {str(e)}')
             self.is_alive = False
             return False
 
@@ -234,7 +252,14 @@ class Session:
     async def _send_status_message(self, msg_type: str, id: str, message: str):
         """Sends a status message to the client."""
         if msg_type == 'error':
-            await self.agent_session.stop_agent_loop_for_error()
+            agent_session = self.agent_session
+            controller = self.agent_session.controller
+            if controller is not None and not agent_session.is_closed():
+                await controller.set_agent_state_to(AgentState.ERROR)
+            self.logger.info(
+                'Agent status error',
+                extra={'signal': 'agent_status_error'},
+            )
         await self.send(
             {'status_update': True, 'type': msg_type, 'id': id, 'message': message}
         )
