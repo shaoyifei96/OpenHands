@@ -1,5 +1,6 @@
 from .bash import CmdRunTool
 from .browser import BrowserTool
+from .delegate_to_agent import DelegateToAgentTool
 from .finish import FinishTool
 from .ipython import IPythonTool
 from .llm_based_edit import LLMBasedFileEditTool
@@ -16,4 +17,5 @@ __all__ = [
     'StrReplaceEditorTool',
     'WebReadTool',
     'ThinkTool',
+    'DelegateToAgentTool',
 ]

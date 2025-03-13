@@ -13,6 +13,7 @@ from litellm import (
 from openhands.agenthub.codeact_agent.tools import (
     BrowserTool,
     CmdRunTool,
+    DelegateToAgentTool,
     FinishTool,
     IPythonTool,
     LLMBasedFileEditTool,
@@ -51,7 +52,9 @@ def combine_thought(action: Action, thought: str) -> Action:
     return action
 
 
-def response_to_actions(response: ModelResponse) -> list[Action]:
+def response_to_actions(
+    response: ModelResponse, is_delegate: bool = False
+) -> list[Action]:
     actions: list[Action] = []
     assert len(response.choices) == 1, 'Only one choice is supported for now'
     choice = response.choices[0]
@@ -66,8 +69,11 @@ def response_to_actions(response: ModelResponse) -> list[Action]:
                 if msg['type'] == 'text':
                     thought += msg['text']
 
+        print(f'\033[93mthought: {thought}\033[0m')
+
         # Process each tool call to OpenHands action
         for i, tool_call in enumerate(assistant_msg.tool_calls):
+            print(f'\033[93mi: {i}, tool_call: {tool_call.function.name}\033[0m')
             action: Action
             try:
                 arguments = json.loads(tool_call.function.arguments)
@@ -98,9 +104,14 @@ def response_to_actions(response: ModelResponse) -> list[Action]:
                         f'Missing required argument "code" in tool call {tool_call.function.name}'
                     )
                 action = IPythonRunCellAction(code=arguments['code'])
-            elif tool_call.function.name == 'delegate_to_browsing_agent':
+            elif tool_call.function.name == DelegateToAgentTool['function']['name']:
+                # actions.append(
+                #     MessageAction(
+                #         content=str(thought) if thought else '',
+                #     )
+                # )
                 action = AgentDelegateAction(
-                    agent='BrowsingAgent',
+                    agent='CodeActAgent',
                     inputs=arguments,
                 )
 
@@ -108,8 +119,11 @@ def response_to_actions(response: ModelResponse) -> list[Action]:
             # AgentFinishAction
             # ================================================
             elif tool_call.function.name == FinishTool['function']['name']:
+                final_thought = str(arguments.get('message', ''))
+                outputs = str(arguments.get('outputs', ''))
                 action = AgentFinishAction(
-                    final_thought=arguments.get('message', ''),
+                    final_thought=final_thought,
+                    outputs={'content': outputs},
                     task_completed=arguments.get('task_completed', None),
                 )
 
@@ -203,13 +217,22 @@ def response_to_actions(response: ModelResponse) -> list[Action]:
                 total_calls_in_response=len(assistant_msg.tool_calls),
             )
             actions.append(action)
-    else:
-        actions.append(
-            MessageAction(
-                content=str(assistant_msg.content) if assistant_msg.content else '',
-                wait_for_response=True,
+    else:  # if no tool call, it's a message
+        if is_delegate:
+            content = str(assistant_msg.content) if assistant_msg.content else ''
+            action = AgentFinishAction(
+                final_thought=content,
+                outputs={'content': content},
+                task_completed='true',
             )
-        )
+            actions.append(action)
+        else:
+            actions.append(
+                MessageAction(
+                    content=str(assistant_msg.content) if assistant_msg.content else '',
+                    wait_for_response=True,
+                )
+            )
 
     assert len(actions) >= 1
     return actions
@@ -219,8 +242,11 @@ def get_tools(
     codeact_enable_browsing: bool = False,
     codeact_enable_llm_editor: bool = False,
     codeact_enable_jupyter: bool = False,
+    codeact_enable_delegate: bool = False,
 ) -> list[ChatCompletionToolParam]:
     tools = [CmdRunTool, ThinkTool, FinishTool]
+    if codeact_enable_delegate:
+        tools.append(DelegateToAgentTool)
     if codeact_enable_browsing:
         tools.append(WebReadTool)
         tools.append(BrowserTool)

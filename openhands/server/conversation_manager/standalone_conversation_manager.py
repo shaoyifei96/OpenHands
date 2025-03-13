@@ -82,9 +82,9 @@ class StandaloneConversationManager(ConversationManager):
             if sid in self._detached_conversations:
                 conversation, _ = self._detached_conversations.pop(sid)
                 self._active_conversations[sid] = (conversation, 1)
-                logger.info(
-                    f'Reusing detached conversation {sid}', extra={'session_id': sid}
-                )
+                # logger.info(
+                #     f'Reusing detached conversation {sid}', extra={'session_id': sid}
+                # )
                 return conversation
 
             # Create new conversation if none exists

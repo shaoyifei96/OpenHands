@@ -352,7 +352,7 @@ class AgentController:
             # Post a MessageAction with the task for the delegate
             if 'task' in action.inputs:
                 self.event_stream.add_event(
-                    MessageAction(content='TASK: ' + action.inputs['task']),
+                    MessageAction(content=action.inputs['task']),
                     EventSource.USER,
                 )
                 await self.delegate.set_agent_state_to(AgentState.RUNNING)
@@ -553,7 +553,7 @@ class AgentController:
         agent_config = self.agent_configs.get(action.agent, self.agent.config)
         llm_config = self.agent_to_llm_config.get(action.agent, self.agent.llm.config)
         llm = LLM(config=llm_config, retry_listener=self._notify_on_llm_retry)
-        delegate_agent = agent_cls(llm=llm, config=agent_config)
+        delegate_agent = agent_cls(llm=llm, config=agent_config, is_delegate=True)
         state = State(
             inputs=action.inputs or {},
             local_iteration=0,
@@ -571,6 +571,7 @@ class AgentController:
         )
 
         # Create the delegate with is_delegate=True so it does NOT subscribe directly
+        self.delegateAction = action
         self.delegate = AgentController(
             sid=self.id + '-delegate',
             agent=delegate_agent,
@@ -616,6 +617,7 @@ class AgentController:
 
             # emit the delegate result observation
             obs = AgentDelegateObservation(outputs=delegate_outputs, content=content)
+            obs.tool_call_metadata = self.delegateAction.tool_call_metadata
             self.event_stream.add_event(obs, EventSource.AGENT)
         else:
             # delegate state is ERROR
@@ -645,7 +647,7 @@ class AgentController:
 
         self.log(
             'info',
-            f'LEVEL {self.state.delegate_level} LOCAL STEP {self.state.local_iteration} GLOBAL STEP {self.state.iteration}',
+            f'DELEGATE LEVEL {self.state.delegate_level} LOCAL STEP {self.state.local_iteration} GLOBAL STEP {self.state.iteration}',
             extra={'msg_type': 'STEP'},
         )
 

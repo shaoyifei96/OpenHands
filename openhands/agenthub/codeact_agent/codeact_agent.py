@@ -57,6 +57,7 @@ class CodeActAgent(Agent):
         self,
         llm: LLM,
         config: AgentConfig,
+        is_delegate: bool = False,
     ) -> None:
         """Initializes a new instance of the CodeActAgent class.
 
@@ -65,6 +66,7 @@ class CodeActAgent(Agent):
         """
         super().__init__(llm, config)
         self.pending_actions: deque[Action] = deque()
+        self.is_delegate = is_delegate
         self.reset()
 
         # Retrieve the enabled tools
@@ -72,6 +74,7 @@ class CodeActAgent(Agent):
             codeact_enable_browsing=self.config.codeact_enable_browsing,
             codeact_enable_jupyter=self.config.codeact_enable_jupyter,
             codeact_enable_llm_editor=self.config.codeact_enable_llm_editor,
+            codeact_enable_delegate=not self.is_delegate,  # only delegate if not a delegate
         )
         logger.debug(
             f'TOOLS loaded for CodeActAgent: {json.dumps(self.tools, indent=2, ensure_ascii=False).replace("\\n", "\n")}'
@@ -123,12 +126,25 @@ class CodeActAgent(Agent):
 
         # prepare what we want to send to the LLM
         messages = self._get_messages(state)
+        print('\033[94m' + 'Starting message processing...' + '\033[0m')
+        for msg in messages:
+            if msg.role == 'system':
+                continue
+            print('\033[93m' + f'msg: {msg.role}' + '\033[0m')  # Orange color
+            for content in msg.content:
+                print(f'{content.type}')
+                print(f'{content.text}')
+        print('\033[94m' + 'Ending message processing...' + '\033[0m')
+
+        # print(f'messages: {str(messages).replace("\\n", "\n")}')
         params: dict = {
             'messages': self.llm.format_messages_for_llm(messages),
         }
         params['tools'] = self.tools
         response = self.llm.completion(**params)
-        actions = codeact_function_calling.response_to_actions(response)
+        actions = codeact_function_calling.response_to_actions(
+            response, self.is_delegate
+        )
         for action in actions:
             self.pending_actions.append(action)
         return self.pending_actions.popleft()

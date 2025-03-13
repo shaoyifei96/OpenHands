@@ -1,6 +1,6 @@
 from litellm import ChatCompletionToolParam, ChatCompletionToolParamFunctionChunk
 
-_FINISH_DESCRIPTION = """Signals the completion of the current task or conversation.
+_FINISH_DESCRIPTION = """Signals the completion of the current task or conversation, or sending a message to the user.
 
 Use this tool when:
 - You have successfully completed the user's requested task
@@ -22,7 +22,7 @@ FinishTool = ChatCompletionToolParam(
         description=_FINISH_DESCRIPTION,
         parameters={
             'type': 'object',
-            'required': ['message', 'task_completed'],
+            'required': ['message', 'task_completed', 'outputs'],
             'properties': {
                 'message': {
                     'type': 'string',
@@ -32,6 +32,10 @@ FinishTool = ChatCompletionToolParam(
                     'type': 'string',
                     'enum': ['true', 'false', 'partial'],
                     'description': 'Whether you have completed the task.',
+                },
+                'outputs': {
+                    'type': 'string',
+                    'description': 'Summarize the interaction with the user, show main output of the task, this is for a parent agent to review the task.',
                 },
             },
         },

@@ -37,6 +37,7 @@ class Agent(ABC):
         self.config = config
         self._complete = False
         self.prompt_manager: 'PromptManager' | None = None
+        self.is_delegate = False
 
     @property
     def complete(self) -> bool:
