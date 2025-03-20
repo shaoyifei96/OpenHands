@@ -6,6 +6,7 @@ from openhands.events.action.agent import (
     AgentSummarizeAction,
     AgentThinkAction,
     ChangeAgentStateAction,
+    RecallAction,
 )
 from openhands.events.action.browse import BrowseInteractiveAction, BrowseURLAction
 from openhands.events.action.commands import CmdRunAction, IPythonRunCellAction
@@ -35,5 +36,5 @@ __all__ = [
     'MessageAction',
     'ActionConfirmationStatus',
     'AgentThinkAction',
-    'AgentFinishTaskCompleted',
+    'RecallAction',
 ]
