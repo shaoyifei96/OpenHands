@@ -248,6 +248,7 @@ def get_tools(
     codeact_enable_jupyter: bool = False,
     codeact_enable_delegate: bool = False,
     llm: LLM | None = None,
+    enable_code_edit_tool: bool = True,
 ) -> list[ChatCompletionToolParam]:
     SIMPLIFIED_TOOL_DESCRIPTION_LLM_SUBSTRS = ['gpt-', 'o3', 'o1']
 
@@ -272,10 +273,12 @@ def get_tools(
         tools.append(IPythonTool)
     if codeact_enable_llm_editor:
         tools.append(LLMBasedFileEditTool)
-    else:
+    elif enable_code_edit_tool:
         tools.append(
             create_str_replace_editor_tool(
                 use_simplified_description=use_simplified_tool_desc
             )
         )
+    else:
+        print('Code edit tool is disabled!')
     return tools

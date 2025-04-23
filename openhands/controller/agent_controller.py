@@ -664,7 +664,7 @@ class AgentController:
                 f'{key}: {value}' for key, value in delegate_outputs.items()
             )
             content = (
-                f'{self.delegate.agent.name} finishes task with {formatted_output}'
+                f'🤖 {self.delegate.agent.name} finishes task with {formatted_output}'
             )
 
             # emit the delegate result observation
@@ -678,7 +678,7 @@ class AgentController:
                 self.delegate.state.outputs if self.delegate.state else {}
             )
             content = (
-                f'{self.delegate.agent.name} encountered an error during execution.'
+                f'🤖 {self.delegate.agent.name} encountered an error during execution.'
             )
 
             # emit the delegate result observation

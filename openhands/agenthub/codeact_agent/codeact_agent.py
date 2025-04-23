@@ -118,17 +118,18 @@ class CodeActAgent(Agent):
 
         # prepare what we want to send to the LLM
         messages = self._get_messages(state)
-        print('\033[94m' + 'Starting message processing...' + '\033[0m')
-        for msg in messages:
-            if msg.role == 'system':
-                continue
-            print('\033[93m' + f'msg: {msg.role}' + '\033[0m')  # Orange color
-            for content in msg.content:
-                print(f'{content.type}')
-                print(f'{content.text}')
-        print('\033[94m' + 'Ending message processing...' + '\033[0m')
-
-        # print(f'messages: {str(messages).replace("\\n", "\n")}')
+        print(
+            '\033[94m' + 'Starting message processing...' + '\033[0m'
+        )  # Only process the last 2 messages
+        if len(messages) > 2:
+            for msg in reversed(messages[-2:]):
+                print(
+                    '\033[93m' + f'Last message ({msg.role}):' + '\033[0m'
+                )  # Orange color
+                for content in msg.content:
+                    print(f'Type: {content.type}')
+                    print(f'Content: {content.text}')
+            print('\033[94m' + 'Ending message processing...' + '\033[0m')
         params: dict = {
             'messages': self.llm.format_messages_for_llm(messages),
         }
@@ -240,37 +241,3 @@ class CodeActAgent(Agent):
             prev_role = msg.role
 
         return results
-
-
-class HighLevelPlanAgent(CodeActAgent):
-    """
-    HighLevelPlanAgent acts as a root agent that handles high-level planning for complex tasks.
-    This agent doesn't perform coding tasks directly but breaks problems into smaller parts
-    and delegates them to CodeActAgent instances for implementation.
-    
-    It maintains a high-level view of the overall task, coordinates between subtasks, 
-    and integrates results from delegate agents.
-    """
-    
-    def __init__(self, llm: LLM, config: AgentConfig) -> None:
-        super().__init__(llm, config, is_delegate=True)
-        # Always ensure delegation is enabled for this agent
-        self.tools = codeact_function_calling.get_tools(
-            codeact_enable_browsing=False,
-            codeact_enable_jupyter=False,  # Disable Jupyter for high-level agent
-            codeact_enable_llm_editor=False,  # Disable direct code editing
-            codeact_enable_delegate=True,  # Always enable delegation
-            llm=self.llm,
-        )
-        logger.debug(
-            f"TOOLS loaded for HighLevelPlanAgent: {', '.join([tool.get('function').get('name') for tool in self.tools])}"
-        )
-        
-        # Override prompt manager to use the high-level planning prompt
-        self.prompt_manager = PromptManager(
-            prompt_dir=os.path.join(os.path.dirname(__file__), 'openhands/agenthub/codeact_agent/prompts')
-        )
-        self.prompt_manager.system_template = self.prompt_manager._load_template('high_level_plan_prompt')
-        
-        # Create a ConversationMemory instance with the new prompt manager
-        self.conversation_memory = ConversationMemory(self.config, self.prompt_manager)
