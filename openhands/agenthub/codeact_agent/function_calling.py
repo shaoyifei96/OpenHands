@@ -106,11 +106,7 @@ def response_to_actions(
                     )
                 action = IPythonRunCellAction(code=arguments['code'])
             elif tool_call.function.name == DelegateToAgentTool['function']['name']:
-                # actions.append(
-                #     MessageAction(
-                #         content=str(thought) if thought else '',
-                #     )
-                # )
+                # Original delegation action logic
                 action = AgentDelegateAction(
                     agent='CodeActAgent',
                     inputs=arguments,
@@ -120,12 +116,41 @@ def response_to_actions(
             # AgentFinishAction
             # ================================================
             elif tool_call.function.name == FinishTool['function']['name']:
+                # >> Injection Point: Commit before finishing (Only for delegates)
+                task_id_for_branch_and_msg = arguments.get('original_task_id', arguments.get('task_id', 'UNKNOWN_TASK'))
+                child_branch_name = f'openhands_child_{task_id_for_branch_and_msg}'
+
+                if is_delegate:
+                    # NOTE: Assumes the delegate is on its correct child branch when finishing.
+                    commit_action_before_finish = CmdRunAction(
+                        command=f'git add . && git commit --allow-empty -m "Auto-commit delegate work for task {task_id_for_branch_and_msg} on branch {child_branch_name}."',
+                        thought=f"Committing delegate work on branch {child_branch_name} before finishing.",
+                        is_input=False # This is usually an internal command
+                    )
+                    actions.append(commit_action_before_finish)
+                # << End Injection
+
+                # Original finish action logic - Now structures outputs for delegates
                 final_thought = str(arguments.get('message', ''))
-                outputs = str(arguments.get('outputs', ''))
+                task_completed_arg = arguments.get('task_completed', None)
+
+                if is_delegate:
+                    # Determine status based on task_completed argument
+                    status = 'success' if task_completed_arg == 'true' else 'failure'
+                    action_outputs = {
+                        'status': status,
+                        'result_branch': child_branch_name,
+                        'original_task_id': task_id_for_branch_and_msg,
+                        'message': final_thought # Include any final message from LLM
+                    }
+                else: # Non-delegate (e.g., top-level agent finishing)
+                    # Keep original simpler output structure or adapt as needed
+                    action_outputs = {'content': str(arguments.get('outputs', ''))}
+
                 action = AgentFinishAction(
                     final_thought=final_thought,
-                    outputs={'content': outputs},
-                    task_completed=arguments.get('task_completed', None),
+                    outputs=action_outputs,
+                    task_completed=task_completed_arg,
                 )
 
             # ================================================

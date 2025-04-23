@@ -35,7 +35,7 @@ FinishTool = ChatCompletionToolParam(
                 },
                 'outputs': {
                     'type': 'string',
-                    'description': 'Summarize the interaction with the user, show main output of the task, this is for a parent agent to review the task.',
+                    'description': 'Summarize the entire interaction, this is for a parent agent to review the task.',
                 },
             },
         },
