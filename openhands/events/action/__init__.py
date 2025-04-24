@@ -6,6 +6,7 @@ from openhands.events.action.agent import (
     AgentSummarizeAction,
     AgentThinkAction,
     ChangeAgentStateAction,
+    ProgressParentAgentAction,
     RecallAction,
 )
 from openhands.events.action.browse import BrowseInteractiveAction, BrowseURLAction
@@ -36,5 +37,6 @@ __all__ = [
     'MessageAction',
     'ActionConfirmationStatus',
     'AgentThinkAction',
+    'ProgressParentAgentAction',
     'RecallAction',
 ]

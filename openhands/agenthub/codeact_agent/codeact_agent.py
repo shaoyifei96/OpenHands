@@ -9,7 +9,7 @@ from openhands.controller.state.state import State
 from openhands.core.config import AgentConfig
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.message import Message, TextContent
-from openhands.events.action import Action, AgentDelegateAction, AgentFinishAction
+from openhands.events.action import Action, AgentDelegateAction, AgentFinishAction, ProgressParentAgentAction
 from openhands.events.action.commands import CmdRunAction
 from openhands.events.tool import ToolCallMetadata
 from openhands.llm.llm import LLM
@@ -83,6 +83,7 @@ class CodeActAgent(Agent):
         llm: LLM,
         config: AgentConfig,
         is_delegate: bool = False,
+        master_progress: int = 0,
         delegate_count: int = 0,
     ) -> None:
         """Initializes a new instance of the CodeActAgent class.
@@ -96,6 +97,7 @@ class CodeActAgent(Agent):
         self.is_plan_agent = not bool(is_delegate)
         self.git_init = True
         self.branch_init = False
+        self.checkedout_main = False
         self.reset()
 
         # Retrieve the enabled tools
@@ -119,22 +121,24 @@ class CodeActAgent(Agent):
         self.condenser = Condenser.from_config(self.config.condenser)
         logger.debug(f'Using condenser: {type(self.condenser)}')
 
+        self.master_branch_base_name = 'openhands_master'
         # self.pending_actions.append(
         if self.is_plan_agent:
             self.git_init = False
-            self.master_branch_name = 'openhands_master'
+            self.master_progress = 0
             # self.plan_agent_feature_name = None
             self.num_cur_delegates = 0
         else:
-            self.child_branch_name = 'openhands_child'
+            self.child_branch_base_name = 'child'
+            self.master_progress = master_progress
             # self.plan_agent_stage = None
             self.child_agent_id = delegate_count
 
     def create_branch_name(self) -> str:
         if self.is_plan_agent:
-            return self.master_branch_name
+            return self.master_branch_base_name + '_' + str(self.master_progress)
         else:
-            return self.child_branch_name + '_' + str(self.child_agent_id)
+            return self.master_branch_base_name + '_' + str(self.master_progress) + self.child_branch_base_name + '_' + str(self.child_agent_id)
 
     def reset(self) -> None:
         """Resets the CodeAct Agent."""
@@ -158,7 +162,7 @@ class CodeActAgent(Agent):
         # Inject a commit before delegating
         if not self.git_init:
             # Create a unique tool call ID for this manual action
-            dummy_tool_id = 'git_init_action_' + str(id(self))
+            dummy_tool_id = 'git_init_action'
 
             # Create action with proper tool call metadata
             init_git_action = CmdRunAction(
@@ -182,7 +186,7 @@ class CodeActAgent(Agent):
         if not self.branch_init:
             branch_name = self.create_branch_name()
             # Create a unique tool call ID for this manual action
-            dummy_tool_id = 'branch_init_action_' + str(id(self))
+            dummy_tool_id = 'branch_init_action'
 
             new_branch_and_commit_action = CmdRunAction(
                 command='git checkout -b '
@@ -204,6 +208,24 @@ class CodeActAgent(Agent):
             self.pending_actions.append(new_branch_and_commit_action)
             self.branch_init = True
 
+        if self.is_plan_agent and not self.checkedout_main:
+            # check out to master branch
+            dummy_tool_id = 'check_out_to_master_action'
+            check_out_to_master_action = CmdRunAction(
+                command='git checkout ' + self.create_branch_name(),
+                thought='Checking out to master branch.',
+                is_input=False,
+            )
+            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd', "Checking out to master branch.")
+            check_out_to_master_action.tool_call_metadata = ToolCallMetadata(
+                tool_call_id=dummy_tool_id,
+                function_name='run_cmd',
+                model_response=model_response,
+                total_calls_in_response=1,
+            )
+            self.checkedout_main = True
+            self.pending_actions.append(check_out_to_master_action)
+            
         # Continue with pending actions if any
         if self.pending_actions:
             return self.pending_actions.popleft()
@@ -230,7 +252,7 @@ class CodeActAgent(Agent):
                 if not hasattr(content, 'text') or not content.text:
                     print(f"\033[91mWARNING: Empty text in message {i}, content {j}, type {content.type}, role {msg.role}\033[0m")
                 else:
-                    text_preview = content.text[:30] if len(content.text) > 30 else content.text
+                    text_preview = content.text[:60] if len(content.text) > 60 else content.text
                     print(f"Message {i} ({msg.role}), content {j}, type: {content.type}, preview: '{text_preview}', length: {len(content.text)}")
         
         params: dict = {
@@ -245,6 +267,7 @@ class CodeActAgent(Agent):
                 response,
                 self.is_delegate,
                 self.num_cur_delegates,  # Pass delegate count
+                self.master_progress # Pass master progress to delegate
             )
         else:
             actions = codeact_function_calling.response_to_actions(
@@ -255,6 +278,33 @@ class CodeActAgent(Agent):
         for action in actions:
             if isinstance(action, AgentDelegateAction):
                 self.num_cur_delegates += 1
+            elif isinstance(action, ProgressParentAgentAction) and self.is_plan_agent:
+                # Increment the master progress counter when the plan agent uses the progress tool
+                self.master_progress += 1
+                self.branch_init = False  # Force creation of a new branch
+                self.checkedout_main = False  # Force checkout to new branch
+                print(f"\033[92mMaster progress incremented to: {self.master_progress}\033[0m")
+                
+                # Create a commit action to preserve current state
+                dummy_tool_id = 'progress_commit_action'
+                commit_action = CmdRunAction(
+                    command='git add . && git commit --allow-empty -m "Auto-commit before progressing to next stage"',
+                    thought=f'Committing changes before progressing to stage {self.master_progress}.',
+                    is_input=False,
+                )
+                model_response = create_dummy_model_response(
+                    dummy_tool_id, 
+                    'run_cmd', 
+                    f"Committing changes before progressing to stage {self.master_progress}."
+                )
+                commit_action.tool_call_metadata = ToolCallMetadata(
+                    tool_call_id=dummy_tool_id,
+                    function_name='run_cmd',
+                    model_response=model_response,
+                    total_calls_in_response=1,
+                )
+                self.pending_actions.appendleft(commit_action)  # Add at the beginning
+                
             self.pending_actions.append(action)
         return self.pending_actions.popleft()
 

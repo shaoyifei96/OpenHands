@@ -4,6 +4,7 @@ from .delegate_to_agent import DelegateToAgentTool
 from .finish import FinishTool
 from .ipython import IPythonTool
 from .llm_based_edit import LLMBasedFileEditTool
+from .progress_parent_agent import ProgressParentAgentTool
 from .str_replace_editor import create_str_replace_editor_tool
 from .think import ThinkTool
 from .web_read import WebReadTool
@@ -18,4 +19,5 @@ __all__ = [
     'WebReadTool',
     'ThinkTool',
     'DelegateToAgentTool',
+    'ProgressParentAgentTool',
 ]

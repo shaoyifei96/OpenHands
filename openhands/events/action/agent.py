@@ -84,6 +84,25 @@ class AgentThinkAction(Action):
 
 
 @dataclass
+class ProgressParentAgentAction(Action):
+    """An action where the agent progresses the parent agent to the next stage.
+
+    Attributes:
+        reason (str): The reason for progressing to the next stage.
+        thought (str): The agent's explanation of its actions.
+        action (str): The action type, namely ActionType.PROGRESS_PARENT.
+    """
+
+    reason: str = ''
+    thought: str = ''
+    action: str = ActionType.PROGRESS_PARENT
+
+    @property
+    def message(self) -> str:
+        return f'Progressing to next stage: {self.reason}'
+
+
+@dataclass
 class AgentRejectAction(Action):
     outputs: dict = field(default_factory=dict)
     thought: str = ''
@@ -104,6 +123,7 @@ class AgentDelegateAction(Action):
     thought: str = ''
     action: str = ActionType.DELEGATE
     delegate_count: int = 0
+    master_progress: int = 0
 
     @property
     def message(self) -> str:

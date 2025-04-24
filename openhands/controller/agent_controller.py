@@ -608,6 +608,7 @@ class AgentController:
             config=agent_config,
             is_delegate=True,
             delegate_count=action.delegate_count,
+            master_progress=action.master_progress,
         )
         state = State(
             session_id=self.id.removesuffix('-delegate'),
@@ -704,7 +705,7 @@ class AgentController:
 
         self.log(
             'info',
-            f'DELEGATE LEVEL {self.state.delegate_level} LOCAL STEP {self.state.local_iteration} GLOBAL STEP {self.state.iteration}',
+            f'\033[91mDELEGATE LEVEL {self.state.delegate_level} LOCAL STEP {self.state.local_iteration} GLOBAL STEP {self.state.iteration}\033[0m',
             extra={'msg_type': 'STEP'},
         )
 

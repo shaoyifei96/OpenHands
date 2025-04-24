@@ -84,6 +84,9 @@ class ActionTypeSchema(BaseModel):
 
     RECALL: str = Field(default='recall')
     """Retrieves content from a user workspace, microagent, or other source."""
+    
+    PROGRESS_PARENT: str = Field(default='progress_parent')
+    """Progress the parent agent to the next stage."""
 
 
 ActionType = ActionTypeSchema()

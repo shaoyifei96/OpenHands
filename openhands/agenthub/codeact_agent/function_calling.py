@@ -16,6 +16,7 @@ from openhands.agenthub.codeact_agent.tools import (
     FinishTool,
     IPythonTool,
     LLMBasedFileEditTool,
+    ProgressParentAgentTool,
     ThinkTool,
     WebReadTool,
     create_cmd_run_tool,
@@ -37,6 +38,7 @@ from openhands.events.action import (
     FileReadAction,
     IPythonRunCellAction,
     MessageAction,
+    ProgressParentAgentAction,
 )
 from openhands.events.event import FileEditSource, FileReadSource
 from openhands.events.tool import ToolCallMetadata
@@ -57,6 +59,7 @@ def response_to_actions(
     response: ModelResponse,
     is_delegate: bool = False,
     delegate_count: int = 0,  # Add delegate count parameter
+    master_progress: int = 0,
 ) -> list[Action]:
     actions: list[Action] = []
     assert len(response.choices) == 1, 'Only one choice is supported for now'
@@ -115,6 +118,7 @@ def response_to_actions(
                         **arguments,
                     },
                     delegate_count=delegate_count,  # Include delegate count
+                    master_progress=master_progress,
                 )
             # ================================================
             # AgentFinishAction
@@ -144,8 +148,12 @@ def response_to_actions(
                 if is_delegate:
                     # Determine status based on task_completed argument
                     status = 'success' if task_completed_arg == 'true' else 'failure'
+                    # Print status in red
+                    print(f"\033[91mDelegate status: {status}\033[0m")
+                    # Get the branch name for the delegate agent
                     action_outputs = {
-                        'content': str(status) + ' ' + final_thought
+                        'content': 'Stage ' + str(status) + ': ' + final_thought,
+                        'status': status,
                     }
                 else:  # Non-delegate (e.g., top-level agent finishing)
                     # Keep original simpler output structure or adapt as needed
@@ -234,6 +242,15 @@ def response_to_actions(
                         f'Missing required argument "url" in tool call {tool_call.function.name}'
                     )
                 action = BrowseURLAction(url=arguments['url'])
+            # ================================================
+            # ProgressParentAgentTool
+            # ================================================
+            elif tool_call.function.name == ProgressParentAgentTool['function']['name']:
+                if 'reason' not in arguments:
+                    raise FunctionCallValidationError(
+                        f'Missing required argument "reason" in tool call {tool_call.function.name}'
+                    )
+                action = ProgressParentAgentAction(reason=arguments['reason'])
             else:
                 raise FunctionCallNotExistsError(
                     f'Tool {tool_call.function.name} is not registered. (arguments: {arguments}). Please check the tool name and retry with an existing tool.'
@@ -295,6 +312,7 @@ def get_tools(
     ]
     if codeact_enable_delegate:
         tools.append(DelegateToAgentTool)
+        tools.append(ProgressParentAgentTool)
     if codeact_enable_browsing:
         tools.append(WebReadTool)
         tools.append(BrowserTool)
