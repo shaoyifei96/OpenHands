@@ -24,7 +24,7 @@ from openhands.utils.prompt import PromptManager
 
 
 # Create a minimal valid ModelResponse for manual actions
-def create_dummy_model_response(tool_call_id: str, function_name: str) -> ModelResponse:
+def create_dummy_model_response(tool_call_id: str, function_name: str, content: str) -> ModelResponse:
     return ModelResponse(
         id='dummy_response_id',
         choices=[
@@ -32,7 +32,7 @@ def create_dummy_model_response(tool_call_id: str, function_name: str) -> ModelR
                 'index': 0,
                 'message': {
                     'role': 'assistant',
-                    'content': '',
+                    'content': content,
                     'tool_calls': [
                         {
                             'id': tool_call_id,
@@ -120,7 +120,6 @@ class CodeActAgent(Agent):
         logger.debug(f'Using condenser: {type(self.condenser)}')
 
         # self.pending_actions.append(
-        print(f'is_plan_agent: {self.is_plan_agent}')
         if self.is_plan_agent:
             self.git_init = False
             self.master_branch_name = 'openhands_master'
@@ -156,7 +155,6 @@ class CodeActAgent(Agent):
         - MessageAction(content) - Message action to run (e.g. ask for clarification)
         - AgentFinishAction() - end the interaction
         """
-        print(f'step: {self.is_plan_agent}')
         # Inject a commit before delegating
         if not self.git_init:
             # Create a unique tool call ID for this manual action
@@ -170,7 +168,7 @@ class CodeActAgent(Agent):
             )
 
             # Add required tool call metadata with a valid ModelResponse
-            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd')
+            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd', "Initializing git for the current task.")
             init_git_action.tool_call_metadata = ToolCallMetadata(
                 tool_call_id=dummy_tool_id,
                 function_name='run_cmd',
@@ -195,7 +193,7 @@ class CodeActAgent(Agent):
             )
 
             # Add required tool call metadata with a valid ModelResponse
-            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd')
+            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd', "Creating a new branch for the current task.")
             new_branch_and_commit_action.tool_call_metadata = ToolCallMetadata(
                 tool_call_id=dummy_tool_id,
                 function_name='run_cmd',
@@ -217,18 +215,24 @@ class CodeActAgent(Agent):
 
         # prepare what we want to send to the LLM
         messages = self._get_messages(state)
-        print(
-            '\033[94m' + 'Starting message processing...' + '\033[0m'
-        )  # Only process the last 2 messages
-        if len(messages) > 2:
-            for msg in reversed(messages[-2:]):
-                print(
-                    '\033[93m' + f'Last message ({msg.role}):' + '\033[0m'
-                )  # Orange color
-                for content in msg.content:
-                    print(f'Type: {content.type}')
-                    print(f'Content: {content.text}')
-            print('\033[94m' + 'Ending message processing...' + '\033[0m')
+        # Check if this is a HighLevelPlanAgent
+        print("Is Plan Agent: ", self.is_plan_agent)
+        # Print total number of messages
+        print(f"Total number of messages: {len(messages)}")
+        
+        # Check for empty messages or content
+        for i, msg in enumerate(messages):
+            if not msg.content:
+                print(f"\033[91mWARNING: Empty content in message {i} with role {msg.role}\033[0m")
+                continue
+                
+            for j, content in enumerate(msg.content):
+                if not hasattr(content, 'text') or not content.text:
+                    print(f"\033[91mWARNING: Empty text in message {i}, content {j}, type {content.type}, role {msg.role}\033[0m")
+                else:
+                    text_preview = content.text[:30] if len(content.text) > 30 else content.text
+                    print(f"Message {i} ({msg.role}), content {j}, type: {content.type}, preview: '{text_preview}', length: {len(content.text)}")
+        
         params: dict = {
             'messages': self.llm.format_messages_for_llm(messages),
         }
@@ -236,11 +240,17 @@ class CodeActAgent(Agent):
         # log to litellm proxy if possible
         params['extra_body'] = {'metadata': state.to_llm_metadata(agent_name=self.name)}
         response = self.llm.completion(**params)
-        actions = codeact_function_calling.response_to_actions(
-            response,
-            self.is_delegate,
-            self.num_cur_delegates,  # Pass delegate count
-        )
+        if self.is_plan_agent:
+            actions = codeact_function_calling.response_to_actions(
+                response,
+                self.is_delegate,
+                self.num_cur_delegates,  # Pass delegate count
+            )
+        else:
+            actions = codeact_function_calling.response_to_actions(
+                response,
+                self.is_delegate,
+            )
         # Increment delegate count if any delegate actions were created
         for action in actions:
             if isinstance(action, AgentDelegateAction):

@@ -31,7 +31,7 @@ class TextContent(Content):
             'type': self.type,
             'text': self.text,
         }
-        if self.cache_prompt:
+        if self.cache_prompt and self.text.strip():
             data['cache_control'] = {'type': 'ephemeral'}
         return data
 

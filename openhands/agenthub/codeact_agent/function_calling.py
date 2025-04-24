@@ -127,25 +127,25 @@ def response_to_actions(
                         thought='Committing delegate work before finishing.',
                         is_input=False,  # This is usually an internal command
                     )
-                    actions.append(commit_action_before_finish)
-                    action.tool_call_metadata = ToolCallMetadata(
+                    
+                    commit_action_before_finish.tool_call_metadata = ToolCallMetadata(
                         tool_call_id=tool_call.id,
                         function_name=tool_call.function.name,
                         model_response=response,
                         total_calls_in_response=len(assistant_msg.tool_calls),
                     )
+                    actions.append(commit_action_before_finish)
                 # << End Injection
 
                 # Original finish action logic - Now structures outputs for delegates
-                final_thought = str(arguments.get('message', ''))
+                final_thought = str(arguments.get('outputs', 'No outputs'))
                 task_completed_arg = arguments.get('task_completed', None)
 
                 if is_delegate:
                     # Determine status based on task_completed argument
                     status = 'success' if task_completed_arg == 'true' else 'failure'
                     action_outputs = {
-                        'status': status,
-                        'message': final_thought,  # Include any final message from LLM
+                        'content': str(status) + ' ' + final_thought
                     }
                 else:  # Non-delegate (e.g., top-level agent finishing)
                     # Keep original simpler output structure or adapt as needed

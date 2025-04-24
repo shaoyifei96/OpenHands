@@ -3,7 +3,10 @@ import os
 import openhands.agenthub.codeact_agent.function_calling as codeact_function_calling
 from openhands.agenthub.codeact_agent.codeact_agent import CodeActAgent
 from openhands.controller.state.state import State
-from openhands.core.action import Action, CmdRunAction, MessageAction
+from openhands.events.action.commands import CmdRunAction 
+from openhands.events.action.message import MessageAction
+from openhands.events.action.agent import AgentThinkAction
+from openhands.events.action.action import Action
 from openhands.core.config import AgentConfig
 from openhands.llm.llm import LLM
 from openhands.memory.conversation_memory import ConversationMemory
