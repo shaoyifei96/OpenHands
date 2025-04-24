@@ -11,6 +11,8 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.core.message import Message, TextContent
 from openhands.events.action import Action, AgentDelegateAction, AgentFinishAction, ProgressParentAgentAction
 from openhands.events.action.commands import CmdRunAction
+from openhands.events.action.message import MessageAction
+from openhands.events.event import EventSource
 from openhands.events.tool import ToolCallMetadata
 from openhands.llm.llm import LLM
 from openhands.memory.condenser import Condenser
@@ -278,14 +280,14 @@ class CodeActAgent(Agent):
         for action in actions:
             if isinstance(action, AgentDelegateAction):
                 self.num_cur_delegates += 1
-            elif isinstance(action, ProgressParentAgentAction) and self.is_plan_agent:
+            if isinstance(action, ProgressParentAgentAction) and self.is_plan_agent:
                 # Increment the master progress counter when the plan agent uses the progress tool
                 self.master_progress += 1
                 self.branch_init = False  # Force creation of a new branch
                 self.checkedout_main = False  # Force checkout to new branch
-                print(f"\033[92mMaster progress incremented to: {self.master_progress}\033[0m")
+                # print(f"\033[92mMaster progress incremented to: {self.master_progress}\033[0m")
                 
-                # Create a commit action to preserve current state
+                # # Create a commit action to preserve current state
                 dummy_tool_id = 'progress_commit_action'
                 commit_action = CmdRunAction(
                     command='git add . && git commit --allow-empty -m "Auto-commit before progressing to next stage"',
@@ -303,9 +305,15 @@ class CodeActAgent(Agent):
                     model_response=model_response,
                     total_calls_in_response=1,
                 )
-                self.pending_actions.appendleft(commit_action)  # Add at the beginning
-                
-            self.pending_actions.append(action)
+                # user_message = MessageAction(
+                #     content="continue",             # The message text
+                #     wait_for_response=False,         # Wait for agent to respond
+                #     source=EventSource.USER         # Set the source as USER
+                # )
+                self.pending_actions.append(commit_action)  # Add at the beginning
+                # self.pending_actions.append(user_message)
+            else:
+                self.pending_actions.append(action)
         return self.pending_actions.popleft()
 
     def _get_messages(self, state: State) -> list[Message]:
