@@ -236,3 +236,6 @@ containers/runtime/Dockerfile
 containers/runtime/project.tar.gz
 containers/runtime/code
 **/node_modules/
+
+650_hw*/
+!650_hw_src/
