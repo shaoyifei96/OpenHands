@@ -54,7 +54,9 @@ def combine_thought(action: Action, thought: str) -> Action:
 
 
 def response_to_actions(
-    response: ModelResponse, is_delegate: bool = False
+    response: ModelResponse,
+    is_delegate: bool = False,
+    delegate_count: int = 0,  # Add delegate count parameter
 ) -> list[Action]:
     actions: list[Action] = []
     assert len(response.choices) == 1, 'Only one choice is supported for now'
@@ -106,26 +108,53 @@ def response_to_actions(
                     )
                 action = IPythonRunCellAction(code=arguments['code'])
             elif tool_call.function.name == DelegateToAgentTool['function']['name']:
-                # actions.append(
-                #     MessageAction(
-                #         content=str(thought) if thought else '',
-                #     )
-                # )
+                # Add delegate count to the inputs
                 action = AgentDelegateAction(
                     agent='CodeActAgent',
-                    inputs=arguments,
+                    inputs={
+                        **arguments,
+                    },
+                    delegate_count=delegate_count,  # Include delegate count
                 )
-
             # ================================================
             # AgentFinishAction
             # ================================================
             elif tool_call.function.name == FinishTool['function']['name']:
+                if is_delegate:
+                    # NOTE: Assumes the delegate is on its correct child branch when finishing.
+                    commit_action_before_finish = CmdRunAction(
+                        command='git add . && git commit --allow-empty -m "Auto-commit delegate work before finishing."',
+                        thought='Committing delegate work before finishing.',
+                        is_input=False,  # This is usually an internal command
+                    )
+                    actions.append(commit_action_before_finish)
+                    action.tool_call_metadata = ToolCallMetadata(
+                        tool_call_id=tool_call.id,
+                        function_name=tool_call.function.name,
+                        model_response=response,
+                        total_calls_in_response=len(assistant_msg.tool_calls),
+                    )
+                # << End Injection
+
+                # Original finish action logic - Now structures outputs for delegates
                 final_thought = str(arguments.get('message', ''))
-                outputs = str(arguments.get('outputs', ''))
+                task_completed_arg = arguments.get('task_completed', None)
+
+                if is_delegate:
+                    # Determine status based on task_completed argument
+                    status = 'success' if task_completed_arg == 'true' else 'failure'
+                    action_outputs = {
+                        'status': status,
+                        'message': final_thought,  # Include any final message from LLM
+                    }
+                else:  # Non-delegate (e.g., top-level agent finishing)
+                    # Keep original simpler output structure or adapt as needed
+                    action_outputs = {'content': str(arguments.get('outputs', ''))}
+
                 action = AgentFinishAction(
                     final_thought=final_thought,
-                    outputs={'content': outputs},
-                    task_completed=arguments.get('task_completed', None),
+                    outputs=action_outputs,
+                    task_completed=task_completed_arg,
                 )
 
             # ================================================
@@ -248,6 +277,7 @@ def get_tools(
     codeact_enable_jupyter: bool = False,
     codeact_enable_delegate: bool = False,
     llm: LLM | None = None,
+    enable_code_edit_tool: bool = True,
 ) -> list[ChatCompletionToolParam]:
     SIMPLIFIED_TOOL_DESCRIPTION_LLM_SUBSTRS = ['gpt-', 'o3', 'o1']
 
@@ -272,10 +302,12 @@ def get_tools(
         tools.append(IPythonTool)
     if codeact_enable_llm_editor:
         tools.append(LLMBasedFileEditTool)
-    else:
+    elif enable_code_edit_tool:
         tools.append(
             create_str_replace_editor_tool(
                 use_simplified_description=use_simplified_tool_desc
             )
         )
+    else:
+        print('Code edit tool is disabled!')
     return tools

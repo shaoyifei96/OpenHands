@@ -1,16 +1,17 @@
 import os
 from collections import deque
 
+from litellm import ModelResponse
+
 import openhands.agenthub.codeact_agent.function_calling as codeact_function_calling
 from openhands.controller.agent import Agent
 from openhands.controller.state.state import State
 from openhands.core.config import AgentConfig
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.message import Message, TextContent
-from openhands.events.action import (
-    Action,
-    AgentFinishAction,
-)
+from openhands.events.action import Action, AgentDelegateAction, AgentFinishAction
+from openhands.events.action.commands import CmdRunAction
+from openhands.events.tool import ToolCallMetadata
 from openhands.llm.llm import LLM
 from openhands.memory.condenser import Condenser
 from openhands.memory.conversation_memory import ConversationMemory
@@ -20,6 +21,32 @@ from openhands.runtime.plugins import (
     PluginRequirement,
 )
 from openhands.utils.prompt import PromptManager
+
+
+# Create a minimal valid ModelResponse for manual actions
+def create_dummy_model_response(tool_call_id: str, function_name: str) -> ModelResponse:
+    return ModelResponse(
+        id='dummy_response_id',
+        choices=[
+            {
+                'index': 0,
+                'message': {
+                    'role': 'assistant',
+                    'content': '',
+                    'tool_calls': [
+                        {
+                            'id': tool_call_id,
+                            'type': 'function',
+                            'function': {'name': function_name, 'arguments': '{}'},
+                        }
+                    ],
+                },
+                'finish_reason': 'tool_calls',
+            }
+        ],
+        model='dummy_model',
+        usage={'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+    )
 
 
 class CodeActAgent(Agent):
@@ -56,6 +83,7 @@ class CodeActAgent(Agent):
         llm: LLM,
         config: AgentConfig,
         is_delegate: bool = False,
+        delegate_count: int = 0,
     ) -> None:
         """Initializes a new instance of the CodeActAgent class.
 
@@ -65,6 +93,9 @@ class CodeActAgent(Agent):
         super().__init__(llm, config)
         self.pending_actions: deque[Action] = deque()
         self.is_delegate = is_delegate
+        self.is_plan_agent = not bool(is_delegate)
+        self.git_init = True
+        self.branch_init = False
         self.reset()
 
         # Retrieve the enabled tools
@@ -88,6 +119,24 @@ class CodeActAgent(Agent):
         self.condenser = Condenser.from_config(self.config.condenser)
         logger.debug(f'Using condenser: {type(self.condenser)}')
 
+        # self.pending_actions.append(
+        print(f'is_plan_agent: {self.is_plan_agent}')
+        if self.is_plan_agent:
+            self.git_init = False
+            self.master_branch_name = 'openhands_master'
+            # self.plan_agent_feature_name = None
+            self.num_cur_delegates = 0
+        else:
+            self.child_branch_name = 'openhands_child'
+            # self.plan_agent_stage = None
+            self.child_agent_id = delegate_count
+
+    def create_branch_name(self) -> str:
+        if self.is_plan_agent:
+            return self.master_branch_name
+        else:
+            return self.child_branch_name + '_' + str(self.child_agent_id)
+
     def reset(self) -> None:
         """Resets the CodeAct Agent."""
         super().reset()
@@ -107,6 +156,56 @@ class CodeActAgent(Agent):
         - MessageAction(content) - Message action to run (e.g. ask for clarification)
         - AgentFinishAction() - end the interaction
         """
+        print(f'step: {self.is_plan_agent}')
+        # Inject a commit before delegating
+        if not self.git_init:
+            # Create a unique tool call ID for this manual action
+            dummy_tool_id = 'git_init_action_' + str(id(self))
+
+            # Create action with proper tool call metadata
+            init_git_action = CmdRunAction(
+                command='git init',
+                thought='Initializing git for the current task.',
+                is_input=False,  # This decides if inputting to running process
+            )
+
+            # Add required tool call metadata with a valid ModelResponse
+            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd')
+            init_git_action.tool_call_metadata = ToolCallMetadata(
+                tool_call_id=dummy_tool_id,
+                function_name='run_cmd',
+                model_response=model_response,
+                total_calls_in_response=1,
+            )
+
+            self.pending_actions.append(init_git_action)
+            self.git_init = True
+
+        if not self.branch_init:
+            branch_name = self.create_branch_name()
+            # Create a unique tool call ID for this manual action
+            dummy_tool_id = 'branch_init_action_' + str(id(self))
+
+            new_branch_and_commit_action = CmdRunAction(
+                command='git checkout -b '
+                + branch_name
+                + ' && git add . && git commit --allow-empty -m "Auto-commit"',
+                thought='Creating a new branch for the current task.',
+                is_input=False,  # This decides if inputting to running process
+            )
+
+            # Add required tool call metadata with a valid ModelResponse
+            model_response = create_dummy_model_response(dummy_tool_id, 'run_cmd')
+            new_branch_and_commit_action.tool_call_metadata = ToolCallMetadata(
+                tool_call_id=dummy_tool_id,
+                function_name='run_cmd',
+                model_response=model_response,
+                total_calls_in_response=1,
+            )
+
+            self.pending_actions.append(new_branch_and_commit_action)
+            self.branch_init = True
+
         # Continue with pending actions if any
         if self.pending_actions:
             return self.pending_actions.popleft()
@@ -118,17 +217,18 @@ class CodeActAgent(Agent):
 
         # prepare what we want to send to the LLM
         messages = self._get_messages(state)
-        print('\033[94m' + 'Starting message processing...' + '\033[0m')
-        for msg in messages:
-            if msg.role == 'system':
-                continue
-            print('\033[93m' + f'msg: {msg.role}' + '\033[0m')  # Orange color
-            for content in msg.content:
-                print(f'{content.type}')
-                print(f'{content.text}')
-        print('\033[94m' + 'Ending message processing...' + '\033[0m')
-
-        # print(f'messages: {str(messages).replace("\\n", "\n")}')
+        print(
+            '\033[94m' + 'Starting message processing...' + '\033[0m'
+        )  # Only process the last 2 messages
+        if len(messages) > 2:
+            for msg in reversed(messages[-2:]):
+                print(
+                    '\033[93m' + f'Last message ({msg.role}):' + '\033[0m'
+                )  # Orange color
+                for content in msg.content:
+                    print(f'Type: {content.type}')
+                    print(f'Content: {content.text}')
+            print('\033[94m' + 'Ending message processing...' + '\033[0m')
         params: dict = {
             'messages': self.llm.format_messages_for_llm(messages),
         }
@@ -137,9 +237,14 @@ class CodeActAgent(Agent):
         params['extra_body'] = {'metadata': state.to_llm_metadata(agent_name=self.name)}
         response = self.llm.completion(**params)
         actions = codeact_function_calling.response_to_actions(
-            response, self.is_delegate
+            response,
+            self.is_delegate,
+            self.num_cur_delegates,  # Pass delegate count
         )
+        # Increment delegate count if any delegate actions were created
         for action in actions:
+            if isinstance(action, AgentDelegateAction):
+                self.num_cur_delegates += 1
             self.pending_actions.append(action)
         return self.pending_actions.popleft()
 

@@ -603,7 +603,12 @@ class AgentController:
         agent_config = self.agent_configs.get(action.agent, self.agent.config)
         llm_config = self.agent_to_llm_config.get(action.agent, self.agent.llm.config)
         llm = LLM(config=llm_config, retry_listener=self._notify_on_llm_retry)
-        delegate_agent = agent_cls(llm=llm, config=agent_config, is_delegate=True)
+        delegate_agent = agent_cls(
+            llm=llm,
+            config=agent_config,
+            is_delegate=True,
+            delegate_count=action.delegate_count,
+        )
         state = State(
             session_id=self.id.removesuffix('-delegate'),
             inputs=action.inputs or {},
@@ -664,7 +669,7 @@ class AgentController:
                 f'{key}: {value}' for key, value in delegate_outputs.items()
             )
             content = (
-                f'{self.delegate.agent.name} finishes task with {formatted_output}'
+                f'🤖 {self.delegate.agent.name} finishes task with {formatted_output}'
             )
 
             # emit the delegate result observation
@@ -678,7 +683,7 @@ class AgentController:
                 self.delegate.state.outputs if self.delegate.state else {}
             )
             content = (
-                f'{self.delegate.agent.name} encountered an error during execution.'
+                f'🤖 {self.delegate.agent.name} encountered an error during execution.'
             )
 
             # emit the delegate result observation
