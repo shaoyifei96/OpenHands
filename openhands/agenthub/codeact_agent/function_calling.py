@@ -54,7 +54,9 @@ def combine_thought(action: Action, thought: str) -> Action:
 
 
 def response_to_actions(
-    response: ModelResponse, is_delegate: bool = False
+    response: ModelResponse,
+    is_delegate: bool = False,
+    delegate_count: int = 0,  # Add delegate count parameter
 ) -> list[Action]:
     actions: list[Action] = []
     assert len(response.choices) == 1, 'Only one choice is supported for now'
@@ -106,28 +108,32 @@ def response_to_actions(
                     )
                 action = IPythonRunCellAction(code=arguments['code'])
             elif tool_call.function.name == DelegateToAgentTool['function']['name']:
-                # Original delegation action logic
+                # Add delegate count to the inputs
                 action = AgentDelegateAction(
                     agent='CodeActAgent',
-                    inputs=arguments,
+                    inputs={
+                        **arguments,
+                    },
+                    delegate_count=delegate_count,  # Include delegate count
                 )
-
             # ================================================
             # AgentFinishAction
             # ================================================
             elif tool_call.function.name == FinishTool['function']['name']:
-                # >> Injection Point: Commit before finishing (Only for delegates)
-                task_id_for_branch_and_msg = arguments.get('original_task_id', arguments.get('task_id', 'UNKNOWN_TASK'))
-                child_branch_name = f'openhands_child_{task_id_for_branch_and_msg}'
-
                 if is_delegate:
                     # NOTE: Assumes the delegate is on its correct child branch when finishing.
                     commit_action_before_finish = CmdRunAction(
-                        command=f'git add . && git commit --allow-empty -m "Auto-commit delegate work for task {task_id_for_branch_and_msg} on branch {child_branch_name}."',
-                        thought=f"Committing delegate work on branch {child_branch_name} before finishing.",
-                        is_input=False # This is usually an internal command
+                        command='git add . && git commit --allow-empty -m "Auto-commit delegate work before finishing."',
+                        thought='Committing delegate work before finishing.',
+                        is_input=False,  # This is usually an internal command
                     )
                     actions.append(commit_action_before_finish)
+                    action.tool_call_metadata = ToolCallMetadata(
+                        tool_call_id=tool_call.id,
+                        function_name=tool_call.function.name,
+                        model_response=response,
+                        total_calls_in_response=len(assistant_msg.tool_calls),
+                    )
                 # << End Injection
 
                 # Original finish action logic - Now structures outputs for delegates
@@ -139,11 +145,9 @@ def response_to_actions(
                     status = 'success' if task_completed_arg == 'true' else 'failure'
                     action_outputs = {
                         'status': status,
-                        'result_branch': child_branch_name,
-                        'original_task_id': task_id_for_branch_and_msg,
-                        'message': final_thought # Include any final message from LLM
+                        'message': final_thought,  # Include any final message from LLM
                     }
-                else: # Non-delegate (e.g., top-level agent finishing)
+                else:  # Non-delegate (e.g., top-level agent finishing)
                     # Keep original simpler output structure or adapt as needed
                     action_outputs = {'content': str(arguments.get('outputs', ''))}
 

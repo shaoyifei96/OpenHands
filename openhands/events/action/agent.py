@@ -103,6 +103,7 @@ class AgentDelegateAction(Action):
     inputs: dict
     thought: str = ''
     action: str = ActionType.DELEGATE
+    delegate_count: int = 0
 
     @property
     def message(self) -> str:
